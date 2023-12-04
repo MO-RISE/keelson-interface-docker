@@ -85,14 +85,10 @@ if __name__ == "__main__":
 
     try:
         while True:
-            data, addr = sock.recvfrom(2048)  # buffer size is 1024 bytes
+          
             logger.debug("Received datagram from %s with length %d", addr, len(data))
             ingress_timestamp = time.time_ns()
 
-            # Legacy code
-            msg_id = int(data[0])
-            count = int(data[1])
-            values = struct.unpack(f"xx{count}h", data)
 
             logging.debug("Decoded values: %s", values)
 
