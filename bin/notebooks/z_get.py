@@ -14,16 +14,15 @@
 
 import sys
 import time
-from datetime import datetime
 import argparse
 import json
 import zenoh
-from zenoh import Reliability, Sample
+from zenoh import config, QueryTarget
 
 # --- Command line argument parsing --- --- --- --- --- ---
 parser = argparse.ArgumentParser(
-    prog='z_sub',
-    description='zenoh sub example')
+    prog='z_get',
+    description='zenoh get example')
 parser.add_argument('--mode', '-m', dest='mode',
                     choices=['peer', 'client'],
                     type=str,
@@ -38,10 +37,18 @@ parser.add_argument('--listen', '-l', dest='listen',
                     action='append',
                     type=str,
                     help='Endpoints to listen on.')
-parser.add_argument('--key', '-k', dest='key',
-                    default='**',
+parser.add_argument('--selector', '-s', dest='selector',
+                    default='demo/example/**',
                     type=str,
-                    help='The key expression to subscribe to.')
+                    help='The selection of resources to query.')
+parser.add_argument('--target', '-t', dest='target',
+                    choices=['ALL', 'BEST_MATCHING', 'ALL_COMPLETE', 'NONE'],
+                    default='BEST_MATCHING',
+                    type=str,
+                    help='The target queryables of the query.')
+parser.add_argument('--value', '-v', dest='value',
+                    type=str,
+                    help='An optional value to send in the query.')
 parser.add_argument('--config', '-c', dest='config',
                     metavar='FILE',
                     type=str,
@@ -56,11 +63,14 @@ if args.connect is not None:
     conf.insert_json5(zenoh.config.CONNECT_KEY, json.dumps(args.connect))
 if args.listen is not None:
     conf.insert_json5(zenoh.config.LISTEN_KEY, json.dumps(args.listen))
-key = args.key
+selector = args.selector
+target = {
+    'ALL': QueryTarget.ALL(),
+    'BEST_MATCHING': QueryTarget.BEST_MATCHING(),
+    'ALL_COMPLETE': QueryTarget.ALL_COMPLETE(),
+}.get(args.target)
 
 # Zenoh code  --- --- --- --- --- --- --- --- --- --- ---
-
-
 
 # initiate logging
 zenoh.init_logger()
@@ -68,26 +78,15 @@ zenoh.init_logger()
 print("Opening session...")
 session = zenoh.open(conf)
 
-print("Declaring Subscriber on '{}'...".format(key))
+print("Sending Query '{}'...".format(selector))
+replies = session.get(selector, zenoh.Queue(), target=target, value=args.value, consolidation=zenoh.QueryConsolidation.NONE())
+for reply in replies.receiver:
+    try:
+        print(">> Received ('{}': '{}')"
+              .format(reply.ok.key_expr, reply.ok.payload.decode("utf-8")))
+    except:
+        print(">> Received (ERROR: '{}')"
+              .format(reply.err.payload.decode("utf-8")))
 
 
-def listener(sample: Sample):
-    print(f">> [Subscriber] Received {sample.kind} ('{sample.key_expr}': '{sample.payload.decode('utf-8')}')")
-    
-
-# WARNING, you MUST store the return value in order for the subscription to work!!
-# This is because if you don't, the reference counter will reach 0 and the subscription
-# will be immediately undeclared.
-sub = session.declare_subscriber(key, listener, reliability=Reliability.RELIABLE())
-
-print("Enter 'q' to quit...")
-c = '\0'
-while c != 'q':
-    c = sys.stdin.read(1)
-    if c == '':
-        time.sleep(1)
-
-# Cleanup: note that even if you forget it, cleanup will happen automatically when 
-# the reference counter reaches 0
-sub.undeclare()
 session.close()

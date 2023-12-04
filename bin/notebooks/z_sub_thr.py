@@ -14,16 +14,15 @@
 
 import sys
 import time
-from datetime import datetime
 import argparse
 import json
 import zenoh
-from zenoh import Reliability, Sample
+from zenoh import Reliability
 
 # --- Command line argument parsing --- --- --- --- --- ---
 parser = argparse.ArgumentParser(
-    prog='z_sub',
-    description='zenoh sub example')
+    prog='z_sub_thr',
+    description='zenoh throughput sub example')
 parser.add_argument('--mode', '-m', dest='mode',
                     choices=['peer', 'client'],
                     type=str,
@@ -38,47 +37,63 @@ parser.add_argument('--listen', '-l', dest='listen',
                     action='append',
                     type=str,
                     help='Endpoints to listen on.')
-parser.add_argument('--key', '-k', dest='key',
-                    default='**',
-                    type=str,
-                    help='The key expression to subscribe to.')
+parser.add_argument('--number', '-n', dest='number',
+                    default=50000,
+                    metavar='NUMBER',
+                    action='append',
+                    type=int,
+                    help='Number of messages in each throughput measurements.')
 parser.add_argument('--config', '-c', dest='config',
                     metavar='FILE',
                     type=str,
                     help='A configuration file.')
 
 args = parser.parse_args()
-conf = zenoh.Config.from_file(
-    args.config) if args.config is not None else zenoh.Config()
+conf = zenoh.Config.from_file(args.config) if args.config is not None else zenoh.Config()
 if args.mode is not None:
     conf.insert_json5(zenoh.config.MODE_KEY, json.dumps(args.mode))
 if args.connect is not None:
     conf.insert_json5(zenoh.config.CONNECT_KEY, json.dumps(args.connect))
 if args.listen is not None:
     conf.insert_json5(zenoh.config.LISTEN_KEY, json.dumps(args.listen))
-key = args.key
-
-# Zenoh code  --- --- --- --- --- --- --- --- --- --- ---
+n = args.number
 
 
+
+batch_count = 0
+count = 0
+start = None
+global_start = None
+
+def listener(sample):
+    global n, count, batch_count, start, global_start
+    if count == 0:
+        start = time.time()
+        if global_start is None:
+            global_start = start
+        count += 1
+    elif count < n:
+        count += 1
+    else:
+        stop = time.time()
+        print(f"{n / (stop - start):.6f} msgs/sec")
+        batch_count += 1
+        count = 0
+
+def report():
+    global n, m, count, batch_count,  global_start
+    end = time.time()
+    total = batch_count * n + count
+    print(f"Received {total} messages in {end - global_start}: averaged {total / (end - global_start):.6f} msgs/sec")
 
 # initiate logging
 zenoh.init_logger()
 
-print("Opening session...")
 session = zenoh.open(conf)
 
-print("Declaring Subscriber on '{}'...".format(key))
-
-
-def listener(sample: Sample):
-    print(f">> [Subscriber] Received {sample.kind} ('{sample.key_expr}': '{sample.payload.decode('utf-8')}')")
-    
-
-# WARNING, you MUST store the return value in order for the subscription to work!!
-# This is because if you don't, the reference counter will reach 0 and the subscription
-# will be immediately undeclared.
-sub = session.declare_subscriber(key, listener, reliability=Reliability.RELIABLE())
+# By explicitly constructing the `Closure`, the `Queue` that's normally inserted between the callback and zenoh is removed.
+# Only do this if your callback runs faster than the minimum expected delay between two samples.
+sub = session.declare_subscriber("test/thr", zenoh.Closure((listener, report)), reliability=Reliability.RELIABLE())
 
 print("Enter 'q' to quit...")
 c = '\0'
@@ -87,7 +102,7 @@ while c != 'q':
     if c == '':
         time.sleep(1)
 
-# Cleanup: note that even if you forget it, cleanup will happen automatically when 
-# the reference counter reaches 0
 sub.undeclare()
 session.close()
+# while `sub.undeclare()` only returns once the unsubscription is done (no more callbacks will be queued from that instant), already queued callbacks may still be running in threads that Python can't see.
+time.sleep(0.1)

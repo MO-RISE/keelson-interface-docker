@@ -11,130 +11,163 @@ import socket
 import logging
 import argparse
 import warnings
-
+import json
 import zenoh
 import brefv
 from brefv.payloads.primitives_pb2 import TimestampedBytes, TimestampedFloat
 from environs import Env
-from utils_docker import export_container_info, start_container, stop_container, restart_container
+from utils_docker import (
+    export_container_info,
+    start_container,
+    stop_container,
+    restart_container,
+)
 
 env = Env()
-KEELSON_REALM = env("KEELSON_REALM")
-KEELSON_ENTITY_ID = env("KEELSON_ENTITY_ID")
-KEELSON_INTERFACE_TYPE = "haddock"
-KEELSON_INTERFACE_ID = env("KEELSON_INTERFACE_ID")
-KEELSON_TAG = "lever_position_pct"
+KEELSON_REALM: str = env("KEELSON_REALM")
+KEELSON_ENTITY_ID: str = env("KEELSON_ENTITY_ID")
+KEELSON_INTERFACE_TYPE: str = env("KEELSON_INTERFACE_TYPE")
+KEELSON_INTERFACE_ID: str = env("KEELSON_INTERFACE_ID")
+KEELSON_TAG: str = env("KEELSON_INTERFACE_TAG")
 
-ARDUINO_IDs = {
-    2: "arduino/left",
-    3: "arduino/right",
-}
+LOG_LEVEL = env.log_level("LOG_LEVEL", logging.DEBUG)
 
+# Setup logger
+logger = logging.getLogger("keelson-docker-sdk")
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(name)s %(message)s", level=LOG_LEVEL
+)
+logging.captureWarnings(True)
+warnings.filterwarnings("once")
 
-logger = logging.getLogger("arduino2keelson")
-
-
-session = zenoh.open()
 
 publisher_config = {
-    "priority": zenoh.Priority.REAL_TIME(),
+    # "priority": zenoh.Priority.REAL_TIME(),
     "congestion_control": zenoh.CongestionControl.DROP(),
 }
 
+# --- Command line argument parsing ---
+parser = argparse.ArgumentParser(
+    prog="z_queryable", description="zenoh queryable example"
+)
+parser.add_argument(
+    "--mode",
+    "-m",
+    dest="mode",
+    choices=["peer", "client"],
+    type=str,
+    help="The zenoh session mode.",
+)
+parser.add_argument(
+    "--connect",
+    "-e",
+    dest="connect",
+    metavar="ENDPOINT",
+    action="append",
+    type=str,
+    help="Endpoints to connect to.",
+)
+parser.add_argument(
+    "--listen",
+    "-l",
+    dest="listen",
+    metavar="ENDPOINT",
+    action="append",
+    type=str,
+    help="Endpoints to listen on.",
+)
+parser.add_argument(
+    "--key",
+    "-k",
+    dest="key",
+    default="demo/example/queryable",
+    type=str,
+    help="The key expression matching queries to reply to.",
+)
+parser.add_argument(
+    "--value",
+    "-v",
+    dest="value",
+    default="Queryable from Python!",
+    type=str,
+    help="The value to reply to queries.",
+)
+parser.add_argument(
+    "--complete",
+    dest="complete",
+    default=False,
+    action="store_true",
+    help="Declare the queryable as complete w.r.t. the key expression.",
+)
+parser.add_argument(
+    "--config",
+    "-c",
+    dest="config",
+    metavar="FILE",
+    type=str,
+    help="A configuration file.",
+)
 
-def generate_source_id(
-    msg_id: int, value_id: int = None
-):  # pylint: disable=redefined-outer-name
-    """
-    Generate a specific multi-level source id based on the msg_id and (optionally) value_id
-    """
-    source_id = ARDUINO_IDs[msg_id]
+args = parser.parse_args()
+conf = (
+    zenoh.Config.from_file(args.config) if args.config is not None else zenoh.Config()
+)
+if args.mode is not None:
+    conf.insert_json5(zenoh.config.MODE_KEY, json.dumps(args.mode))
+if args.connect is not None:
+    conf.insert_json5(zenoh.config.CONNECT_KEY, json.dumps(args.connect))
+if args.listen is not None:
+    conf.insert_json5(zenoh.config.LISTEN_KEY, json.dumps(args.listen))
+key = args.key
+value = args.value
+complete = args.complete
 
-    if value_id is None:
-        return source_id
 
-    match msg_id:
-        case 2 | 3:
-            mapping = {
-                0: "azimuth/horizontal",
-                1: "azimuth/vertical",
-                2: "knob/right",
-                3: "knob/left",
-            }
-        case _:
-            raise KeyError(f"msg_id {msg_id} not supported!")
+# Setting up ZENOH session
+session = zenoh.open(conf)
 
-    if value_id not in mapping:
-        raise NotImplementedError(
-            f"The combination msg_id={msg_id} and value_id={value_id} is not supported!"
+
+def queryable_callback(query):
+
+
+    print(
+        f">> [Queryable ] Received Query '{query.selector}'"
+        + (f" with value: {query.value.payload}" if query.value is not None else "no value")
+    )
+
+    print("query", query.value)
+
+    # Publishing to zenoh
+    try:
+        topic = brefv.construct_pub_sub_topic(
+            realm=KEELSON_REALM,
+            entity_id=KEELSON_ENTITY_ID,
+            interface_type=KEELSON_INTERFACE_TYPE,
+            interface_id=KEELSON_INTERFACE_ID,
+            tag="haddock",
+            source_id=generate_source_id(msg_id=msg_id),
         )
 
-    source_id = f"{source_id}/{mapping[value_id]}"
+        payload = TimestampedBytes()
+        payload.timestamp.FromNanoseconds(ingress_timestamp)
+        payload.value = data
+        message = brefv.enclose(payload.SerializeToString())
+        session.put(topic, message, **publisher_config)
 
-    return source_id
+        query.reply(Sample(key, value))  # REAPLY TO QUERY
+
+    except Exception:  # pylint: disable=broad-exception-caught
+        logger.exception("Failed to send to zenoh")
 
 
 if __name__ == "__main__":
-    
-    # Setup logger
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)s %(name)s %(message)s", level=args.log_level
-    )
-    logging.captureWarnings(True)
-    warnings.filterwarnings("once")
-
     try:
+        print("Declaring Queryable on '{}'...".format(key))
+        queryable = session.declare_queryable(key, queryable_callback, complete)
+
         while True:
-          
-            logger.debug("Received datagram from %s with length %d", addr, len(data))
-            ingress_timestamp = time.time_ns()
-
-
-            logging.debug("Decoded values: %s", values)
-
-            # Publishing to zenoh
-            try:
-                topic = brefv.construct_pub_sub_topic(
-                    realm=KEELSON_REALM,
-                    entity_id=KEELSON_ENTITY_ID,
-                    interface_type=KEELSON_INTERFACE_TYPE,
-                    interface_id=KEELSON_INTERFACE_ID,
-                    tag="haddock",
-                    source_id=generate_source_id(msg_id=msg_id),
-                )
-                payload = TimestampedBytes()
-                payload.timestamp.FromNanoseconds(ingress_timestamp)
-                payload.value = data
-                message = brefv.enclose(payload.SerializeToString())
-                session.put(topic, message, **publisher_config)
-            except Exception:  # pylint: disable=broad-exception-caught
-                logger.exception("Failed to send to zenoh")
-
-            for ix, value in enumerate(values):
-                try:
-                    try:
-                        source_id = generate_source_id(msg_id=msg_id, value_id=ix)
-                    except NotImplementedError as exc:
-                        # No support, lets send a warning to the logs and then continue
-                        warnings.warn(str(exc))
-                        continue
-
-                    topic = brefv.construct_pub_sub_topic(
-                        realm=KEELSON_REALM,
-                        entity_id=KEELSON_ENTITY_ID,
-                        interface_type=KEELSON_INTERFACE_TYPE,
-                        interface_id=KEELSON_INTERFACE_ID,
-                        tag="lever_position_pct",
-                        source_id=source_id,
-                    )
-                    payload = TimestampedFloat()
-                    payload.timestamp.FromNanoseconds(ingress_timestamp)
-                    payload.value = value
-                    message = brefv.enclose(payload.SerializeToString())
-                    session.put(topic, message, **publisher_config)
-                except Exception:  # pylint: disable=broad-exception-caught
-                    logger.exception("Failed to send to zenoh")
+            time.sleep(1)
+            # forever loop
 
     finally:
-        sock.close()
         session.close()

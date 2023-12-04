@@ -14,16 +14,15 @@
 
 import sys
 import time
-from datetime import datetime
 import argparse
 import json
 import zenoh
-from zenoh import Reliability, Sample
+from zenoh import config, Sample, Value
 
 # --- Command line argument parsing --- --- --- --- --- ---
 parser = argparse.ArgumentParser(
-    prog='z_sub',
-    description='zenoh sub example')
+    prog='z_queryable',
+    description='zenoh queryable example')
 parser.add_argument('--mode', '-m', dest='mode',
                     choices=['peer', 'client'],
                     type=str,
@@ -39,17 +38,24 @@ parser.add_argument('--listen', '-l', dest='listen',
                     type=str,
                     help='Endpoints to listen on.')
 parser.add_argument('--key', '-k', dest='key',
-                    default='**',
+                    default='demo/example/queryable',
                     type=str,
-                    help='The key expression to subscribe to.')
+                    help='The key expression matching queries to reply to.')
+parser.add_argument('--value', '-v', dest='value',
+                    default='Queryable from Python!',
+                    type=str,
+                    help='The value to reply to queries.')
+parser.add_argument('--complete', dest='complete',
+                    default=False,
+                    action='store_true',
+                    help='Declare the queryable as complete w.r.t. the key expression.')
 parser.add_argument('--config', '-c', dest='config',
                     metavar='FILE',
                     type=str,
                     help='A configuration file.')
 
 args = parser.parse_args()
-conf = zenoh.Config.from_file(
-    args.config) if args.config is not None else zenoh.Config()
+conf = zenoh.Config.from_file(args.config) if args.config is not None else zenoh.Config()
 if args.mode is not None:
     conf.insert_json5(zenoh.config.MODE_KEY, json.dumps(args.mode))
 if args.connect is not None:
@@ -57,9 +63,21 @@ if args.connect is not None:
 if args.listen is not None:
     conf.insert_json5(zenoh.config.LISTEN_KEY, json.dumps(args.listen))
 key = args.key
+value = args.value
+complete = args.complete
 
 # Zenoh code  --- --- --- --- --- --- --- --- --- --- ---
 
+
+def queryable_callback(query):
+    print(
+        f">> [Queryable ] Received Query '{query.selector}'"
+        + (f" with value: {query.value.payload}" if query.value is not None else "no value")
+    )
+
+    print(">> [Queryable ] Value", query.value)
+
+    query.reply(Sample(key, value))
 
 
 # initiate logging
@@ -68,26 +86,17 @@ zenoh.init_logger()
 print("Opening session...")
 session = zenoh.open(conf)
 
-print("Declaring Subscriber on '{}'...".format(key))
-
-
-def listener(sample: Sample):
-    print(f">> [Subscriber] Received {sample.kind} ('{sample.key_expr}': '{sample.payload.decode('utf-8')}')")
-    
-
-# WARNING, you MUST store the return value in order for the subscription to work!!
-# This is because if you don't, the reference counter will reach 0 and the subscription
-# will be immediately undeclared.
-sub = session.declare_subscriber(key, listener, reliability=Reliability.RELIABLE())
+print("Declaring Queryable on '{}'...".format(key))
+queryable = session.declare_queryable(key, queryable_callback, complete)
 
 print("Enter 'q' to quit...")
 c = '\0'
 while c != 'q':
     c = sys.stdin.read(1)
-    if c == '':
+    if c != 'q':
+        print("getting")
+        session.get(key, print, consolidation=zenoh.QueryConsolidation.NONE())
         time.sleep(1)
 
-# Cleanup: note that even if you forget it, cleanup will happen automatically when 
-# the reference counter reaches 0
-sub.undeclare()
+queryable.undeclare()
 session.close()

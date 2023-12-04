@@ -14,16 +14,16 @@
 
 import sys
 import time
-from datetime import datetime
 import argparse
+import itertools
 import json
 import zenoh
-from zenoh import Reliability, Sample
+from zenoh import config
 
 # --- Command line argument parsing --- --- --- --- --- ---
 parser = argparse.ArgumentParser(
-    prog='z_sub',
-    description='zenoh sub example')
+    prog='z_pub',
+    description='zenoh pub example')
 parser.add_argument('--mode', '-m', dest='mode',
                     choices=['peer', 'client'],
                     type=str,
@@ -39,17 +39,22 @@ parser.add_argument('--listen', '-l', dest='listen',
                     type=str,
                     help='Endpoints to listen on.')
 parser.add_argument('--key', '-k', dest='key',
-                    default='**',
+                    default='demo/example/pub',
                     type=str,
-                    help='The key expression to subscribe to.')
+                    help='The key expression to publish onto.')
+parser.add_argument('--value', '-v', dest='value',
+                    default='Pub from Python!',
+                    type=str,
+                    help='The value to publish.')
+parser.add_argument("--iter", dest="iter", type=int,
+                    help="How many puts to perform")
 parser.add_argument('--config', '-c', dest='config',
                     metavar='FILE',
                     type=str,
                     help='A configuration file.')
 
 args = parser.parse_args()
-conf = zenoh.Config.from_file(
-    args.config) if args.config is not None else zenoh.Config()
+conf = zenoh.Config.from_file(args.config) if args.config is not None else zenoh.Config()
 if args.mode is not None:
     conf.insert_json5(zenoh.config.MODE_KEY, json.dumps(args.mode))
 if args.connect is not None:
@@ -57,10 +62,7 @@ if args.connect is not None:
 if args.listen is not None:
     conf.insert_json5(zenoh.config.LISTEN_KEY, json.dumps(args.listen))
 key = args.key
-
-# Zenoh code  --- --- --- --- --- --- --- --- --- --- ---
-
-
+value = args.value
 
 # initiate logging
 zenoh.init_logger()
@@ -68,26 +70,14 @@ zenoh.init_logger()
 print("Opening session...")
 session = zenoh.open(conf)
 
-print("Declaring Subscriber on '{}'...".format(key))
+print(f"Declaring Publisher on '{key}'...")
+pub = session.declare_publisher(key)
 
+for idx in itertools.count() if args.iter is None else range(args.iter):
+    time.sleep(1)
+    buf = f"[{idx:4d}] {value}"
+    print(f"Putting Data ('{key}': '{buf}')...")
+    pub.put(buf)
 
-def listener(sample: Sample):
-    print(f">> [Subscriber] Received {sample.kind} ('{sample.key_expr}': '{sample.payload.decode('utf-8')}')")
-    
-
-# WARNING, you MUST store the return value in order for the subscription to work!!
-# This is because if you don't, the reference counter will reach 0 and the subscription
-# will be immediately undeclared.
-sub = session.declare_subscriber(key, listener, reliability=Reliability.RELIABLE())
-
-print("Enter 'q' to quit...")
-c = '\0'
-while c != 'q':
-    c = sys.stdin.read(1)
-    if c == '':
-        time.sleep(1)
-
-# Cleanup: note that even if you forget it, cleanup will happen automatically when 
-# the reference counter reaches 0
-sub.undeclare()
+pub.undeclare()
 session.close()

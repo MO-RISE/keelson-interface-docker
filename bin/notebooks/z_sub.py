@@ -72,7 +72,9 @@ print("Declaring Subscriber on '{}'...".format(key))
 
 
 def listener(sample: Sample):
-    print(f">> [Subscriber] Received {sample.kind} ('{sample.key_expr}': '{sample.payload.decode('utf-8')}')")
+    print(f">> [Subscriber] Received {sample.kind} ")
+    print(f">> [Subscriber] KeyExpresion('{sample.key_expr}'")
+    # print(f">> [Subscriber] Payload'{sample.payload.decode('utf-8')}')")
     
 
 # WARNING, you MUST store the return value in order for the subscription to work!!

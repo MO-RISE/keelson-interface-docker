@@ -14,16 +14,15 @@
 
 import sys
 import time
-from datetime import datetime
 import argparse
 import json
 import zenoh
-from zenoh import Reliability, Sample
+from zenoh import Reliability, SampleKind, Query, Sample, KeyExpr
 
 # --- Command line argument parsing --- --- --- --- --- ---
 parser = argparse.ArgumentParser(
-    prog='z_sub',
-    description='zenoh sub example')
+    prog='z_storage',
+    description='zenoh storage example')
 parser.add_argument('--mode', '-m', dest='mode',
                     choices=['peer', 'client'],
                     type=str,
@@ -39,9 +38,13 @@ parser.add_argument('--listen', '-l', dest='listen',
                     type=str,
                     help='Endpoints to listen on.')
 parser.add_argument('--key', '-k', dest='key',
-                    default='**',
+                    default='demo/example/**',
                     type=str,
-                    help='The key expression to subscribe to.')
+                    help='The key expression matching resources to store.')
+parser.add_argument('--complete', dest='complete',
+                    default=False,
+                    action='store_true',
+                    help='Declare the storage as complete w.r.t. the key expression.')
 parser.add_argument('--config', '-c', dest='config',
                     metavar='FILE',
                     type=str,
@@ -57,9 +60,28 @@ if args.connect is not None:
 if args.listen is not None:
     conf.insert_json5(zenoh.config.LISTEN_KEY, json.dumps(args.listen))
 key = args.key
+complete = args.complete
 
 # Zenoh code  --- --- --- --- --- --- --- --- --- --- ---
 
+store = {}
+
+
+def listener(sample: Sample):
+    print(">> [Subscriber] Received {} ('{}': '{}')"
+          .format(sample.kind, sample.key_expr, sample.payload.decode("utf-8")))
+    if sample.kind == SampleKind.DELETE():
+        store.pop(sample.key_expr, None)
+    else:
+        store[sample.key_expr] = sample
+
+
+def query_handler(query: Query):
+    print(">> [Queryable ] Received Query '{}'".format(query.selector))
+    replies = []
+    for stored_name, sample in store.items():
+        if query.key_expr.intersects(stored_name):
+            query.reply(sample)
 
 
 # initiate logging
@@ -69,16 +91,11 @@ print("Opening session...")
 session = zenoh.open(conf)
 
 print("Declaring Subscriber on '{}'...".format(key))
+sub = session.declare_subscriber(
+    key, listener, reliability=Reliability.RELIABLE())
 
-
-def listener(sample: Sample):
-    print(f">> [Subscriber] Received {sample.kind} ('{sample.key_expr}': '{sample.payload.decode('utf-8')}')")
-    
-
-# WARNING, you MUST store the return value in order for the subscription to work!!
-# This is because if you don't, the reference counter will reach 0 and the subscription
-# will be immediately undeclared.
-sub = session.declare_subscriber(key, listener, reliability=Reliability.RELIABLE())
+print("Declaring Queryable on '{}'...".format(key))
+queryable = session.declare_queryable(key, query_handler, complete)
 
 print("Enter 'q' to quit...")
 c = '\0'
@@ -87,7 +104,6 @@ while c != 'q':
     if c == '':
         time.sleep(1)
 
-# Cleanup: note that even if you forget it, cleanup will happen automatically when 
-# the reference counter reaches 0
 sub.undeclare()
+queryable.undeclare()
 session.close()

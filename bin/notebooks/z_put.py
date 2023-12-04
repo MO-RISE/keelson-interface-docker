@@ -14,16 +14,15 @@
 
 import sys
 import time
-from datetime import datetime
 import argparse
 import json
 import zenoh
-from zenoh import Reliability, Sample
+from zenoh import config, Value
 
 # --- Command line argument parsing --- --- --- --- --- ---
 parser = argparse.ArgumentParser(
-    prog='z_sub',
-    description='zenoh sub example')
+    prog='z_put',
+    description='zenoh put example')
 parser.add_argument('--mode', '-m', dest='mode',
                     choices=['peer', 'client'],
                     type=str,
@@ -39,9 +38,13 @@ parser.add_argument('--listen', '-l', dest='listen',
                     type=str,
                     help='Endpoints to listen on.')
 parser.add_argument('--key', '-k', dest='key',
-                    default='**',
+                    default='demo/example/put',
                     type=str,
-                    help='The key expression to subscribe to.')
+                    help='The key expression to write.')
+parser.add_argument('--value', '-v', dest='value',
+                    default='Put from Python!',
+                    type=str,
+                    help='The value to write.')
 parser.add_argument('--config', '-c', dest='config',
                     metavar='FILE',
                     type=str,
@@ -57,10 +60,9 @@ if args.connect is not None:
 if args.listen is not None:
     conf.insert_json5(zenoh.config.LISTEN_KEY, json.dumps(args.listen))
 key = args.key
+value = args.value
 
 # Zenoh code  --- --- --- --- --- --- --- --- --- --- ---
-
-
 
 # initiate logging
 zenoh.init_logger()
@@ -68,26 +70,36 @@ zenoh.init_logger()
 print("Opening session...")
 session = zenoh.open(conf)
 
-print("Declaring Subscriber on '{}'...".format(key))
+print("Putting Data ('{}': '{}')...".format(key, value))
+session.put(key, value)
 
+# --- Examples of put with other types:
 
-def listener(sample: Sample):
-    print(f">> [Subscriber] Received {sample.kind} ('{sample.key_expr}': '{sample.payload.decode('utf-8')}')")
-    
+# - Integer
+# session.put('/demo/example/Integer', 3)
 
-# WARNING, you MUST store the return value in order for the subscription to work!!
-# This is because if you don't, the reference counter will reach 0 and the subscription
-# will be immediately undeclared.
-sub = session.declare_subscriber(key, listener, reliability=Reliability.RELIABLE())
+# - Float
+# session.put('/demo/example/Float', 3.14)
 
-print("Enter 'q' to quit...")
-c = '\0'
-while c != 'q':
-    c = sys.stdin.read(1)
-    if c == '':
-        time.sleep(1)
+# - Properties (as a Dictionary with str only)
+# session.put('/demo/example/Properties', {'p1': 'v1', 'p2': 'v2'})
 
-# Cleanup: note that even if you forget it, cleanup will happen automatically when 
-# the reference counter reaches 0
-sub.undeclare()
+# - Json (str format)
+# session.put('/demo/example/Json',
+#             json.dumps(['foo', {'bar': ('baz', None, 1.0, 2)}]),
+#             encoding=Encoding.TEXT_JSON)
+
+# - Raw ('application/octet-stream' encoding by default)
+# session.put('/demo/example/Raw', b'\x48\x69\x21')
+
+# - Custom encoding
+# session.put('/demo/example/Custom',
+#             b'\x48\x69\x21',
+#             encoding='my_encoding')
+
+# - UTF-16 String specifying the charset as Encoding suffix
+# session.put('/demo/example/UTF-16',
+#             'hello'.encode('utf-16'),
+#             encoding=Encoding.TEXT_PLAIN.with_suffix(';charset=utf-16'))
+
 session.close()
