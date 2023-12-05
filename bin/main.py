@@ -6,13 +6,12 @@ Docker SDK for start, stop and monitoring containers running on platforms with K
 """
 
 import time
-import struct
-import socket
 import logging
 import argparse
 import warnings
 import json
 import zenoh
+from zenoh import config, Sample, Value
 import brefv
 from brefv.payloads.primitives_pb2 import TimestampedBytes, TimestampedFloat
 from environs import Env
@@ -24,11 +23,11 @@ from utils_docker import (
 )
 
 env = Env()
-KEELSON_REALM: str = env("KEELSON_REALM")
-KEELSON_ENTITY_ID: str = env("KEELSON_ENTITY_ID")
-KEELSON_INTERFACE_TYPE: str = env("KEELSON_INTERFACE_TYPE")
-KEELSON_INTERFACE_ID: str = env("KEELSON_INTERFACE_ID")
-KEELSON_TAG: str = env("KEELSON_INTERFACE_TAG")
+KEELSON_REALM: str = env("KEELSON_REALM", "rise")
+KEELSON_ENTITY_ID: str = env("KEELSON_ENTITY_ID", "seahorse")
+KEELSON_INTERFACE_TYPE: str = env("KEELSON_INTERFACE_TYPE", "docker-sdk")
+KEELSON_INTERFACE_ID: str = env("KEELSON_INTERFACE_ID", "sh-1")
+KEELSON_TAG: str = env("KEELSON_INTERFACE_TAG", "TODO")
 
 LOG_LEVEL = env.log_level("LOG_LEVEL", logging.DEBUG)
 
@@ -40,11 +39,6 @@ logging.basicConfig(
 logging.captureWarnings(True)
 warnings.filterwarnings("once")
 
-
-publisher_config = {
-    # "priority": zenoh.Priority.REAL_TIME(),
-    "congestion_control": zenoh.CongestionControl.DROP(),
-}
 
 # --- Command line argument parsing ---
 parser = argparse.ArgumentParser(
@@ -118,7 +112,18 @@ if args.connect is not None:
     conf.insert_json5(zenoh.config.CONNECT_KEY, json.dumps(args.connect))
 if args.listen is not None:
     conf.insert_json5(zenoh.config.LISTEN_KEY, json.dumps(args.listen))
-key = args.key
+
+keyExp = brefv.construct_pub_sub_topic(
+    realm=KEELSON_REALM,
+    entity_id=KEELSON_ENTITY_ID,
+    interface_type=KEELSON_INTERFACE_TYPE,
+    interface_id=KEELSON_INTERFACE_ID,
+    tag="docker",
+    source_id="id",
+)
+
+key = keyExp
+# key = args.key
 value = args.value
 complete = args.complete
 
@@ -128,36 +133,50 @@ session = zenoh.open(conf)
 
 
 def queryable_callback(query):
+    print(f">> [Queryable ] Received Query '{query.selector}'")
+    print(">> [Queryable ] Parameters", query.parameters, type(query.parameters))
 
 
-    print(
-        f">> [Queryable ] Received Query '{query.selector}'"
-        + (f" with value: {query.value.payload}" if query.value is not None else "no value")
-    )
+    if query.parameters == "":
+        print(">> [Queryable ] No parameters")
+        list_of_containers = export_container_info()
+        string_of_containers = json.dumps(list_of_containers)
+        bytes_of_containers = string_of_containers.encode()
 
-    print("query", query.value)
-
-    # Publishing to zenoh
+        # Publishing to zenoh
     try:
-        topic = brefv.construct_pub_sub_topic(
-            realm=KEELSON_REALM,
-            entity_id=KEELSON_ENTITY_ID,
-            interface_type=KEELSON_INTERFACE_TYPE,
-            interface_id=KEELSON_INTERFACE_ID,
-            tag="haddock",
-            source_id=generate_source_id(msg_id=msg_id),
-        )
-
         payload = TimestampedBytes()
-        payload.timestamp.FromNanoseconds(ingress_timestamp)
-        payload.value = data
+        payload.timestamp.FromNanoseconds(time.time_ns())
+        payload.value = bytes_of_containers # Should be bytes
         message = brefv.enclose(payload.SerializeToString())
-        session.put(topic, message, **publisher_config)
+        # session.put(topic, message, **publisher_config)
+        # query.reply(Sample(key, value))  # REAPLY TO QUERY
 
-        query.reply(Sample(key, value))  # REAPLY TO QUERY
+        print(">> [Queryable ] Publishing to topic", keyExp)
+        print(">> [Queryable ] Publishing message", message)
+        query.reply(Sample(keyExp, message))  # REAPLY TO QUERY
 
     except Exception:  # pylint: disable=broad-exception-caught
         logger.exception("Failed to send to zenoh")
+
+
+
+    else:
+        query_args = query.parameters.split('&')
+        print(">> [Queryable ] Parameters", query_args, type(query_args) )
+    # for query_value in query_values:
+    #     query_arg = query_value.split('=')
+        
+    #     print(">> [Queryable ] Parameters", query_value, type(query_value) )
+        
+    #     if query_arg[0] == 'value':
+    #         value = query_value[1]
+    #         print(">> [Queryable ] Value", value)
+    #     else:
+    #         print(">> [Queryable ] Unknown parameter", query_arg[0] ) 
+
+
+  
 
 
 if __name__ == "__main__":

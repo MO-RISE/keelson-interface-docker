@@ -75,9 +75,27 @@ def queryable_callback(query):
         + (f" with value: {query.value.payload}" if query.value is not None else "no value")
     )
 
-    print(">> [Queryable ] Value", query.value)
+    print(f">> [Queryable ] Received Query '{query.selector}'")
+    print(">> [Queryable ] Parameters", query.parameters, type(query.parameters) )
 
-    query.reply(Sample(key, value))
+    if query.parameters is not None:
+    
+        query_values = query.parameters.split('&')
+
+        print(">> [Queryable ] Parameters", query_values, type(query_values) )
+        for query_value in query_values:
+            query_arg = query_value.split('=')
+            
+            print(">> [Queryable ] Parameters", query_value, type(query_value) )
+           
+            if query_arg[0] == 'value':
+                value = query_value[1]
+                print(">> [Queryable ] Value", value)
+            else:
+                print(">> [Queryable ] Unknown parameter", query_arg[0] ) 
+
+
+    query.reply(Sample(key, "TESTING QUERYABLE"))
 
 
 # initiate logging
