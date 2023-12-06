@@ -20,6 +20,7 @@ from utils_docker import (
     start_container,
     stop_container,
     restart_container,
+    get_container_logs
 )
 
 env = Env()
@@ -144,36 +145,64 @@ def queryable_callback(query):
         bytes_of_containers = string_of_containers.encode()
 
         # Publishing to zenoh
-    try:
-        payload = TimestampedBytes()
-        payload.timestamp.FromNanoseconds(time.time_ns())
-        payload.value = bytes_of_containers # Should be bytes
-        message = brefv.enclose(payload.SerializeToString())
-        # session.put(topic, message, **publisher_config)
-        # query.reply(Sample(key, value))  # REAPLY TO QUERY
+        try:
+            payload = TimestampedBytes()
+            payload.timestamp.FromNanoseconds(time.time_ns())
+            payload.value = bytes_of_containers # Should be bytes
+        
+            # no wrap ... 
+            message = brefv.enclose(bytes_of_containers)
+        
+            # message = brefv.enclose(payload.SerializeToString())
+            # session.put(topic, message, **publisher_config)
+            # query.reply(Sample(key, value))  # REAPLY TO QUERY
 
-        print(">> [Queryable ] Publishing to topic", keyExp)
-        print(">> [Queryable ] Publishing message", message)
-        query.reply(Sample(keyExp, message))  # REAPLY TO QUERY
+            print(">> [Queryable ] Publishing to topic", keyExp)
+            print(">> [Queryable ] Publishing message", message)
+            query.reply(Sample(keyExp, message))  # REAPLY TO QUERY
 
-    except Exception:  # pylint: disable=broad-exception-caught
-        logger.exception("Failed to send to zenoh")
-
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.exception("Failed to send to zenoh")
 
 
     else:
         query_args = query.parameters.split('&')
         print(">> [Queryable ] Parameters", query_args, type(query_args) )
-    # for query_value in query_values:
-    #     query_arg = query_value.split('=')
+        for query_value in query_args:
+            query_arg = query_value.split('=')
+            print(">> [Queryable ] query_arg & Val", query_arg[0] )
         
-    #     print(">> [Queryable ] Parameters", query_value, type(query_value) )
-        
-    #     if query_arg[0] == 'value':
-    #         value = query_value[1]
-    #         print(">> [Queryable ] Value", value)
-    #     else:
-    #         print(">> [Queryable ] Unknown parameter", query_arg[0] ) 
+            if query_arg[0] == 'logs':
+                container_id = query_arg[1]
+                print(">> [Queryable ] Value: container_id", container_id)
+                container_log = get_container_logs(container_id)
+                print(">> [Queryable ] Value: container_log", container_log)
+                string_of_containers = json.dumps(container_log)
+                bytes_of_containers = string_of_containers.encode()
+
+                    # Publishing to zenoh
+                try:
+                    payload = TimestampedBytes()
+                    payload.timestamp.FromNanoseconds(time.time_ns())
+                    payload.value = bytes_of_containers # Should be bytes
+                
+                    # no wrap ... 
+                    message = brefv.enclose(bytes_of_containers)
+                
+                    # message = brefv.enclose(payload.SerializeToString())
+                    # session.put(topic, message, **publisher_config)
+                    # query.reply(Sample(key, value))  # REAPLY TO QUERY
+
+                    print(">> [Queryable ] Publishing to topic", keyExp)
+                    print(">> [Queryable ] Publishing message", message)
+                    query.reply(Sample(keyExp, message))  # REAPLY TO QUERY
+
+                except Exception:  # pylint: disable=broad-exception-caught
+                    logger.exception("Failed to send to zenoh")
+
+
+            else:
+                print(">> [Queryable ] Unknown parameter", query_arg[0] ) 
 
 
   

@@ -1,0 +1,12 @@
+version: '3'
+services:
+
+  keelson-interface-docker:
+    build: .
+    # image: ghcr.io/mo-rise/keelson-interface-docker:latest
+    container_name: keelson-interface-docker-0
+    restart: unless-stopped
+    network_mode: "host"
+    # environment:
+      # Session ID 
+      # - CLUON_CID=65
