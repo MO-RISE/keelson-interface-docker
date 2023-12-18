@@ -31,18 +31,21 @@ def start_container(container_id):
     client = docker.from_env()
     container = client.containers.get(container_id)
     container.start()
+    return "Container started"
 
 
 def stop_container(container_id):
     client = docker.from_env()
     container = client.containers.get(container_id)
     container.stop()
+    return "Container stopped"
 
 
 def restart_container(container_id):
     client = docker.from_env()
     container = client.containers.get(container_id)
     container.restart()
+    return "Container restarted"
 
 
 def get_container_logs(container_id, tail=100):
