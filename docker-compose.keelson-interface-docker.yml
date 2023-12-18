@@ -7,6 +7,10 @@ services:
     container_name: keelson-interface-docker-0
     restart: unless-stopped
     network_mode: "host"
-    # environment:
-      # Session ID 
-      # - CLUON_CID=65
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - KEELSON_REALM=rise
+      - KEELSON_SESSION_ID=seahorse
+      - KEELSON_INTERFACE_TYPE=docker-sdk
+      - KEELSON_INTERFACE_NAME=sh-1
