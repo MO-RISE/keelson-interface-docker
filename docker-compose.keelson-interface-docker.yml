@@ -11,6 +11,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - KEELSON_REALM=rise
-      - KEELSON_SESSION_ID=seahorse
+      - KEELSON_ENTITY_ID=masslab
       - KEELSON_INTERFACE_TYPE=docker-sdk
-      - KEELSON_INTERFACE_NAME=sh-1
+      - KEELSON_INTERFACE_ID=ted

@@ -28,6 +28,7 @@ KEELSON_REALM: str = env("KEELSON_REALM", "rise")
 KEELSON_ENTITY_ID: str = env("KEELSON_ENTITY_ID", "seahorse")
 KEELSON_INTERFACE_TYPE: str = env("KEELSON_INTERFACE_TYPE", "docker-sdk")
 KEELSON_INTERFACE_ID: str = env("KEELSON_INTERFACE_ID", "sh-1")
+
 KEELSON_TAG: str = env("KEELSON_INTERFACE_TAG", "TODO")
 
 LOG_LEVEL = env.log_level("LOG_LEVEL", logging.DEBUG)
@@ -122,6 +123,8 @@ keyExp = brefv.construct_pub_sub_topic(
     tag="docker",
     source_id="id",
 )
+
+logger.info("keyExp: %s", keyExp)
 
 key = keyExp
 # key = args.key
