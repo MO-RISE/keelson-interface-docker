@@ -137,12 +137,12 @@ session = zenoh.open(conf)
 
 
 def queryable_callback(query):
-    print(f">> [Queryable ] Received Query '{query.selector}'")
-    print(">> [Queryable ] Parameters", query.parameters, type(query.parameters))
+    logger.debug(f">> [Queryable ] Received Query '{query.selector}'")
+    logger.debug(">> [Queryable ] Parameters", query.parameters, type(query.parameters))
 
 
     if query.parameters == "":
-        print(">> [Queryable ] No parameters")
+        logger.debug(">> [Queryable ] No parameters")
         list_of_containers = export_container_info()
         string_of_containers = json.dumps(list_of_containers)
         bytes_of_containers = string_of_containers.encode()
@@ -160,8 +160,8 @@ def queryable_callback(query):
             # session.put(topic, message, **publisher_config)
             # query.reply(Sample(key, value))  # REAPLY TO QUERY
 
-            print(">> [Queryable ] Publishing to topic", keyExp)
-            print(">> [Queryable ] Publishing message", message)
+            logger.debug(">> [Queryable ] Publishing to topic", keyExp)
+            logger.debug(">> [Queryable ] Publishing message", message)
             query.reply(Sample(keyExp, message))  # REAPLY TO QUERY
 
         except Exception:  # pylint: disable=broad-exception-caught
@@ -170,16 +170,16 @@ def queryable_callback(query):
 
     else:
         query_args = query.parameters.split('&')
-        print(">> [Queryable ] Parameters", query_args, type(query_args) )
+        logger.debug(">> [Queryable ] Parameters", query_args, type(query_args) )
         for query_value in query_args:
             query_arg = query_value.split('=')
-            print(">> [Queryable ] query_arg & Val", query_arg[0] )
+            logger.debug(">> [Queryable ] query_arg & Val", query_arg[0] )
         
             if query_arg[0] == 'logs':
                 container_id = query_arg[1]
-                print(">> [Queryable ] Value: container_id", container_id)
+                logger.debug(">> [Queryable ] Value: container_id", container_id)
                 container_log = get_container_logs(container_id)
-                print(">> [Queryable ] Value: container_log", container_log)
+                logger.debug(">> [Queryable ] Value: container_log", container_log)
                 string_of_containers = json.dumps(container_log)
                 bytes_of_containers = string_of_containers.encode()
 
@@ -196,8 +196,8 @@ def queryable_callback(query):
                     # session.put(topic, message, **publisher_config)
                     # query.reply(Sample(key, value))  # REAPLY TO QUERY
 
-                    print(">> [Queryable ] Publishing to topic", keyExp)
-                    print(">> [Queryable ] Publishing message", message)
+                    logger.debug(">> [Queryable ] Publishing to topic", keyExp)
+                    logger.debug(">> [Queryable ] Publishing message", message)
                     query.reply(Sample(keyExp, message))  # REAPLY TO QUERY
 
                 except Exception:  # pylint: disable=broad-exception-caught
@@ -205,7 +205,7 @@ def queryable_callback(query):
 
 
             else:
-                print(">> [Queryable ] Unknown parameter", query_arg[0] ) 
+                logger.error(">> [Queryable ] Unknown parameter", query_arg[0] ) 
 
 
   
@@ -213,7 +213,7 @@ def queryable_callback(query):
 
 if __name__ == "__main__":
     try:
-        print("Declaring Queryable on '{}'...".format(key))
+        logger.debug("Declaring Queryable on '{}'...".format(key))
         queryable = session.declare_queryable(key, queryable_callback, complete)
 
         while True:
